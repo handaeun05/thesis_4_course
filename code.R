@@ -65,7 +65,7 @@ skim(df, w08gender1, w08marital, w08A002_age, w08A032, w08region1, w08Ba003, w08
 
 data <- select(df, w01gender1, w01marital, w01A002_age, w01A032, w01region3, w01Ba003, w01G027, w01edu)
 summarize(data)
-data$w01gender1 <- ifelse(df$w01gender1 == "????", 0, 1)
+data$w01gender1 <- ifelse(df$w01gender1 == "여자", 0, 1)
 data$w01marital <- ifelse(df$w01marital == "ȥ????", 1, 0)
 data$w01marital <- ifelse(df$w01marital == "ȥ????", 1, 0)
 
