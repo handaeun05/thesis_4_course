@@ -1,0 +1,208 @@
+---
+title: "Project Proposal"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Working with data
+
+Data source: <https://survey.keis.or.kr/eng/klosa/klosa01.jsp>
+
+```{r data}
+library(tidyverse)
+library(haven)
+library(dplyr)
+library(foreign)
+df <- read_dta("C:/Users/Catherine/Documents/한다은/For thesis/KLoSA_STATA_2022v1/new_str.dta")
+df$rrr
+```
+
+We need 3 types of variables.
+
++-----------------------------------+-----------------------------------------------------------------+
+| Type                              | Variables                                                       |
++===================================+=================================================================+
+| Measures of happiness             | Life satisfaction (w08G030)                                     |
++-----------------------------------+-----------------------------------------------------------------+
+|                                   | Depression (w08dep1)                                            |
++-----------------------------------+-----------------------------------------------------------------+
+|                                   | CESD-10 (w08sumcesd)                                            |
++-----------------------------------+-----------------------------------------------------------------+
+| Social security system            | Application for Long-Term Care Insurance (long_ins)             |
++-----------------------------------+-----------------------------------------------------------------+
+|                                   | Coverage by private health insurance (privat)                   |
++-----------------------------------+-----------------------------------------------------------------+
+|                                   | The number of enrolled annuity insurance products (w08F132,ann) |
++-----------------------------------+-----------------------------------------------------------------+
+|                                   | Basic old-age pension income (w08senior_pension)                |
++-----------------------------------+-----------------------------------------------------------------+
+|                                   | National Health Insurance Registration (med_ins)                |
++-----------------------------------+-----------------------------------------------------------------+
+| Socio-demographic characteristics | Gender(gender)                                                  |
++-----------------------------------+-----------------------------------------------------------------+
+|                                   | Age (w08A002_age)                                               |
++-----------------------------------+-----------------------------------------------------------------+
+|                                   | Marital status (marital)                                        |
++-----------------------------------+-----------------------------------------------------------------+
+|                                   | Education (w08edu)                                              |
++-----------------------------------+-----------------------------------------------------------------+
+|                                   | Frequency of meeting close people (w08A032)                     |
++-----------------------------------+-----------------------------------------------------------------+
+|                                   | Region (w08region3)                                             |
++-----------------------------------+-----------------------------------------------------------------+
+|                                   | Health status (w08C001)                                         |
++-----------------------------------+-----------------------------------------------------------------+
+|                                   | Number of children (w08Ba003)                                   |
++-----------------------------------+-----------------------------------------------------------------+
+|                                   | Income satisfaction (w08G027)                                   |
++-----------------------------------+-----------------------------------------------------------------+
+|                                   | Employment (work)                                               |
++-----------------------------------+-----------------------------------------------------------------+
+
+
+
+Let's make small data set with these variables:
+
+```{r data}
+data <- df %>% select(pid, gender, marital, w08A002_age, w08A032, w08region3, w08Ba003, w08G027, w08edu, w08C001, work,w08F132, med_ins, w08senior_pension, privat, long_ins, w08G030, w08dep1, w08sumcesd, w08mniw_y,  ann,w08C046, w08C301)
+
+knitr::kable(summary(data))
+```
+```{r data_1}
+```
+## 2. Propensity Score Matching
+
+```{r psm}
+install.packages('moonBook')
+library(moonBook)
+
+mytable(w08mniw_y ~ w08dep1, data=data)
+```
+```{r}
+
+data$dep <- ifelse(data$w08dep1 == 1, 1, 0)
+data$tr <- ifelse(data$w08C046 == 1, 1, 0)
+data$med_in <- ifelse(data$w08C301 == 1, 1, 0)
+data$med_in <- ifelse((data$med_in == 1)&(data$w08mniw_y == 2018), 1, 0)
+data$time <- ifelse(data$w08mniw_y >= 2018, 1, 0)
+data$time <- as.factor(data$time)
+data_2020 <- filter(data, w08mniw_y >= 2018)
+model <- glm(med_in ~ gender + marital + w08A002_age + w08A032 + w08region3 + w08Ba003 + w08G027+ w08edu + w08C001 + work, family=binomial, data=data_2020)
+summary(model)
+```
+```{r psm}
+library(ggplot2)
+
+score.table <- data.frame(ps=predict(model, type='response'),  med_in = model$model$med_in)
+
+score.table %>% mutate(med_in = ifelse(med_in == 1, 'National Health Insurance', 'Medical Aid')) %>% ggplot(aes(x = ps, fill = med_in)) +  geom_histogram(color = 'white', position = 'dodge') +  theme_bw() + ylim(c(0,100)) +stat_bin(bins=30)
+```
+```{r psm}
+library(MatchIt)
+data_new <- data %>%  # MatchIt does not allow missing values
+  select(dep,marital, w08A002_age, w08A032, w08region3, w08G027, w08edu, w08C001, work, med_ins,med_in, w08mniw_y, w08sumcesd, w08G030
+         ) %>%
+  na.omit()
+match_fit <- matchit(med_in ~ marital + w08A002_age + w08A032 + w08G027+ w08edu + w08C001 + work, method='nearest', data=data_new)
+matched_dat <- match.data(match_fit)
+dta_m <- match.data(match_fit)
+dim(dta_m)
+table(matched_dat$dep)
+
+write.dta(dta_m, "hurray.dta")
+write_dta(dta_m, "hurray.dta")
+```
+## 3. Estimating treatment effects
+
+
+```{r welch}
+with(dta_m, t.test(med_in ~ dep))
+```
+```{r did_dep}
+lm_treat1 <- lm(dep ~ med_in*w08mniw_y, data = dta_m)
+summary(lm_treat1)
+
+```
+```{r did}
+lm_treat2 <- lm(dep ~ med_in*w08mniw_y + marital + w08A002_age + w08A032 + w08region3 + w08G027+ w08edu + w08C001 + work, data = dta_m)
+summary(lm_treat2)
+```
+```{r did_CESD10}
+lm_treat3 <- lm(w08sumcesd ~ med_in*w08mniw_y, data = dta_m)
+summary(lm_treat3)
+```
+```{r did_CESD10}
+lm_treat4 <- lm(w08sumcesd ~ med_in*w08mniw_y + marital + w08A002_age + w08A032 + w08region3 + w08G027+ w08edu + w08C001 + work, data = dta_m)
+summary(lm_treat4)
+```
+```{r did_life_exp}
+lm_treat5 <- lm(w08G030 ~ med_in*w08mniw_y, data = dta_m)
+summary(lm_treat5)
+```
+```{r did_life_exp}
+lm_treat6 <- lm(w08G030 ~ med_in*w08mniw_y + marital + w08A002_age + w08A032 + w08region3 + w08G027+ w08edu + w08C001 + work, data = dta_m)
+summary(lm_treat6)
+```
+
+## Other analyses
+```{r d}
+library(groom)
+install.packages("data.table")
+
+## Load data.table package
+library(data.table)
+
+all_models <- rbindlist(
+    lm_treat2 %>% mutate(model = 1),
+    lm_treat4 %>% mutate(model = 2),
+    lm_treat6 %>% mutate(model = 3))
+
+ols_table <- all_models %>%
+    select(-statistic, -p.value) %>%
+    mutate_each(funs(round(., 2)), -term) %>% 
+    gather(key, value, estimate:std.error) %>%
+    spread(model, value) 
+
+```
+
+
+```{r random}
+install.packages('did')
+library(did)
+
+data$k <- ifelse(
+                 ((data$w08mniw_y == 2020)& (data$med_ins == 0)), 2020,
+                 ifelse(((data$w08mniw_y == 2018)& (data$med_ins == 0)), 2018,
+                 ifelse(((data$w08mniw_y == 2016)& (data$med_ins == 0)), 2016,
+                 ifelse(((data$w08mniw_y == 2014)& (data$med_ins == 0)), 2014,
+                 ifelse(((data$w08mniw_y == 2012)& (data$med_ins == 0)), 2012,
+                 ifelse(((data$w08mniw_y == 2010)& (data$med_ins == 0)), 2010,
+                 ifelse(((data$w08mniw_y == 2008)& (data$med_ins == 0)), 2008,
+                 ifelse(((data$w08mniw_y == 2006)& (data$med_ins == 0)), 2006, 0))))))))
+data1 <- data %>%
+   group_by(pid) %>%
+   mutate(min_value = min(k)) %>% arrange() %>% head() 
+
+head(data1)
+
+
+is.numeric(data$min_value)  
+data$e <- as.numeric(data$min_value)
+
+data$rrr <- ifelse(data$rrr == 2006, 2008, 0) 
+
+require(dplyr)
+
+example_attgt <- att_gt(yname = "w08sumcesd",
+                        tname = "w08mniw_y",
+                        idname = "pid",
+                        gname = "rrr",
+                        data = df,  allow_unbalanced_panel = TRUE,
+                        control_group = "notyettreated"
+                        )
+
+summary(example_attgt)
+```
